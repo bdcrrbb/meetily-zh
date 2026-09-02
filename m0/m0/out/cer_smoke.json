@@ -1,0 +1,26 @@
+{
+  "normalization": "lowercase; whitespace removed; ascii+zh punctuation removed; fullwidth->halfwidth",
+  "clips": [
+    {
+      "clip": "raokouling.wav",
+      "distance": 14,
+      "ref_chars": 140,
+      "cer": 0.1
+    },
+    {
+      "clip": "noise2.wav",
+      "distance": 10,
+      "ref_chars": 53,
+      "cer": 0.18867924528301888
+    },
+    {
+      "clip": "cantonese.wav",
+      "distance": 5,
+      "ref_chars": 94,
+      "cer": 0.05319148936170213
+    }
+  ],
+  "pooled_distance": 29,
+  "pooled_ref_chars": 287,
+  "pooled_cer": 0.10104529616724739
+}

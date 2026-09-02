@@ -4,6 +4,7 @@ members = [
     "frontend/src-tauri",
     "llama-helper"
 ]
+exclude = ["m0"]
 
 # Shared workspace settings
 [workspace.package]
