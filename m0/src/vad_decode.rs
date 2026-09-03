@@ -23,8 +23,7 @@ struct Out {
 
 pub fn run(cli: &Cli, wav_path: &str, out: &str) -> Result<()> {
     let wave = Wave::read(wav_path).ok_or_else(|| anyhow::anyhow!("cannot read {wav_path}"))?;
-    let sr = wave.sample_rate();
-    let samples = wave.samples();
+    let (sr, samples) = crate::to_16k(&wave);
     let dur = samples.len() as f64 / sr as f64;
 
     let mut vad = VoiceActivityDetector::create(&vad_config(&cli.model_dir), 60.0)

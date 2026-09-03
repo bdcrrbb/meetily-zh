@@ -47,8 +47,7 @@ fn peak_rss_kb() -> u64 {
 
 fn producer(path: &str, track: u8, tx: mpsc::SyncSender<(u8, u64, Instant, Vec<f32>)>, stop: std::sync::Arc<AtomicU64>) -> Result<()> {
     let wave = Wave::read(path).ok_or_else(|| anyhow::anyhow!("cannot read {path}"))?;
-    let sr = wave.sample_rate();
-    let samples = wave.samples();
+    let (sr, samples) = crate::to_16k(&wave);
     let mut seq = 0u64;
     let start = Instant::now();
     let mut pos = 0usize;

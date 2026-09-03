@@ -5,6 +5,7 @@
 // Plan: docs/superpowers/plans/2026-09-01-meetily-zh-implementation.md (v2)
 
 mod cer;
+mod overhead;
 mod diarize;
 mod soak;
 mod stt;
@@ -12,6 +13,7 @@ mod vad_decode;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
+use sherpa_onnx::Wave;
 
 #[derive(Parser)]
 #[command(name = "m0", about = "Meetily-ZH M0 confirmation-gate harness")]
@@ -78,6 +80,11 @@ pub enum Cmd {
         #[arg(long, default_value = "m0/out/soak")]
         out_prefix: String,
     },
+    /// Diagnose per-call overhead: full clip vs in-memory 2s slices
+    Overhead {
+        #[arg(long)]
+        wav: String,
+    },
     /// Normalized CER: references json {clip: text} vs hyp json {clip: text}
     Cer {
         #[arg(long)]
@@ -111,6 +118,26 @@ pub fn qwen_paths(model_dir: &str) -> anyhow::Result<sherpa_onnx::OfflineQwen3AS
     })
 }
 
+/// Linear-interpolation resample to 16 kHz (bench-grade; fine for VAD gating).
+pub fn to_16k(wave: &Wave) -> (i32, Vec<f32>) {
+    let sr = wave.sample_rate();
+    if sr == 16000 {
+        return (16000, wave.samples().to_vec());
+    }
+    let src = wave.samples();
+    let ratio = 16000.0f64 / sr as f64;
+    let out_len = (src.len() as f64 * ratio) as usize;
+    let mut out = Vec::with_capacity(out_len);
+    for i in 0..out_len {
+        let pos = i as f64 / ratio;
+        let i0 = pos as usize;
+        let i1 = (i0 + 1).min(src.len() - 1);
+        let frac = (pos - i0 as f64) as f32;
+        out.push(src[i0] * (1.0 - frac) + src[i1] * frac);
+    }
+    (16000, out)
+}
+
 pub fn vad_config(model_dir: &str) -> sherpa_onnx::VadModelConfig {
     sherpa_onnx::VadModelConfig {
         silero_vad: sherpa_onnx::SileroVadModelConfig {
@@ -142,6 +169,7 @@ fn main() -> Result<()> {
         Cmd::Soak { track_a, track_b, minutes, out_prefix } => {
             soak::run(&cli, track_a, track_b, *minutes, out_prefix)?
         }
+        Cmd::Overhead { wav } => overhead::run(&cli, wav)?,
         Cmd::Cer { refs, hyps, out } => cer::run(refs, hyps, out)?,
     }
     Ok(())
