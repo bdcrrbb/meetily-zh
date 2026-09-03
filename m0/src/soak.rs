@@ -19,6 +19,7 @@ struct Caption {
     seq: u64,
     capture_to_text_ms: f64,
     decode_ms: f64,
+    segment_s: f64,
     chars: usize,
 }
 
@@ -29,20 +30,11 @@ struct SoakSummary {
     lat_p50_ms: f64,
     lat_p95_ms: f64,
     lat_p99_ms: f64,
+    decode_p50_ms: f64,
+    decode_p95_ms: f64,
+    avg_segment_s: f64,
     peak_rss_kb: u64,
     dropped: u64,
-}
-
-fn peak_rss_kb() -> u64 {
-    // Linux: /proc/self/status; macOS: getrusage via status fallback
-    if let Ok(s) = std::fs::read_to_string("/proc/self/status") {
-        for line in s.lines() {
-            if let Some(v) = line.strip_prefix("VmHWM:") {
-                return v.split_whitespace().next().unwrap_or("0").parse().unwrap_or(0);
-            }
-        }
-    }
-    0 // macOS: report via `ps -o rss` externally if needed
 }
 
 fn producer(path: &str, track: u8, tx: mpsc::SyncSender<(u8, u64, Instant, Vec<f32>)>, stop: std::sync::Arc<AtomicU64>) -> Result<()> {
@@ -92,6 +84,7 @@ pub fn run(cli: &Cli, track_a: &str, track_b: &str, minutes: u64, out_prefix: &s
 
     let log_path = format!("{out_prefix}_log.jsonl");
     let mut log = std::io::BufWriter::new(std::fs::File::create(&log_path)?);
+    let stop_f = stop.clone();
     let consumer = std::thread::spawn(move || -> Result<()> {
         let deadline = Instant::now() + Duration::from_secs(minutes * 60);
         while Instant::now() < deadline {
@@ -113,6 +106,7 @@ pub fn run(cli: &Cli, track_a: &str, track_b: &str, minutes: u64, out_prefix: &s
                                 seq,
                                 capture_to_text_ms: capture.elapsed().as_secs_f64() * 1000.0,
                                 decode_ms,
+                                segment_s: seg.n() as f64 / 16000.0,
                                 chars: text.chars().count(),
                             };
                             serde_json::to_writer(&mut log, &cap)?;
@@ -132,29 +126,61 @@ pub fn run(cli: &Cli, track_a: &str, track_b: &str, minutes: u64, out_prefix: &s
         Ok(())
     });
 
+    let rss_handle = std::thread::spawn(move || -> u64 {
+        let mut peak = 0u64;
+        let deadline = Instant::now() + Duration::from_secs(minutes * 60 + 10);
+        while Instant::now() < deadline {
+            if let Ok(out) = std::process::Command::new("ps")
+                .args(["-o", "rss=", "-p", &std::process::id().to_string()])
+                .output()
+            {
+                if let Ok(t) = String::from_utf8(out.stdout) {
+                    if let Ok(kb) = t.trim().parse::<u64>() {
+                        peak = peak.max(kb);
+                    }
+                }
+            }
+            std::thread::sleep(Duration::from_secs(5));
+        }
+        peak
+    });
     consumer.join().unwrap()?;
+    stop_f.store(1, Ordering::Relaxed);
+    drop(stop_f);
     let _ = th_a.join();
     let _ = th_b.join();
+    let peak_rss = rss_handle.join().unwrap_or(0);
 
     // collect captions for percentiles
     let mut lats: Vec<f64> = Vec::new();
+    let mut decodes: Vec<f64> = Vec::new();
+    let mut segs: Vec<f64> = Vec::new();
     // captions were sent to txt_rx in consumer; re-read log instead (simpler)
     for line in std::fs::read_to_string(&log_path)?.lines() {
         if let Ok(c) = serde_json::from_str::<Caption>(line) {
             lats.push(c.capture_to_text_ms);
+            decodes.push(c.decode_ms);
+            segs.push(c.segment_s);
         }
     }
     lats.sort_by(|a, b| a.partial_cmp(b).unwrap());
     let pct = |p: f64| -> f64 {
         if lats.is_empty() { 0.0 } else { lats[((p / 100.0) * (lats.len() - 1) as f64) as usize] }
     };
+    let dp = |p: f64| -> f64 {
+        if decodes.is_empty() { 0.0 } else { decodes[((p / 100.0) * (decodes.len() - 1) as f64) as usize] }
+    };
+    let avg_seg = if segs.is_empty() { 0.0 } else { segs.iter().sum::<f64>() / segs.len() as f64 };
     let summary = SoakSummary {
         minutes,
         captions: lats.len(),
         lat_p50_ms: pct(50.0),
         lat_p95_ms: pct(95.0),
         lat_p99_ms: pct(99.0),
-        peak_rss_kb: peak_rss_kb(),
+        decode_p50_ms: dp(50.0),
+        decode_p95_ms: dp(95.0),
+        avg_segment_s: avg_seg,
+        peak_rss_kb: peak_rss,
         dropped: 0,
     };
     std::fs::write(
@@ -162,8 +188,9 @@ pub fn run(cli: &Cli, track_a: &str, track_b: &str, minutes: u64, out_prefix: &s
         serde_json::to_string_pretty(&summary)?,
     )?;
     println!(
-        "soak: {} min, {} captions, p50={:.0}ms p95={:.0}ms p99={:.0}ms peakRSS={}kB",
-        minutes, summary.captions, summary.lat_p50_ms, summary.lat_p95_ms, summary.lat_p99_ms, summary.peak_rss_kb
+        "soak: {} min, {} captions\n  capture_to_text p50={:.0} p95={:.0} p99={:.0} ms\n  decode p50={:.0} p95={:.0} ms | avg segment {:.1}s | peak RSS {} kB",
+        minutes, summary.captions, summary.lat_p50_ms, summary.lat_p95_ms, summary.lat_p99_ms,
+        summary.decode_p50_ms, summary.decode_p95_ms, summary.avg_segment_s, summary.peak_rss_kb
     );
     Ok(())
 }
