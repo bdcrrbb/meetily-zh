@@ -87,30 +87,51 @@ pub fn run(cli: &Cli, track_a: &str, track_b: &str, minutes: u64, out_prefix: &s
     let stop_f = stop.clone();
     let consumer = std::thread::spawn(move || -> Result<()> {
         let deadline = Instant::now() + Duration::from_secs(minutes * 60);
+        let mut last_caption = Instant::now();
         while Instant::now() < deadline {
             match rx.recv_timeout(Duration::from_millis(500)) {
                 Ok((track, seq, capture, chunk)) => {
+                    let since = last_caption.elapsed().as_secs();
+                    if since >= 5 {
+                        serde_json::to_writer(&mut log, &serde_json::json!({
+                            "heartbeat": true, "idle_s": since,
+                            "track": track, "seq": seq
+                        }))?;
+                        writeln!(log)?;
+                        last_caption = Instant::now();
+                    }
                     let vad = &vads[track as usize];
                     vad.accept_waveform(&chunk);
                     while !vad.is_empty() {
                         if let Some(seg) = vad.front() {
-                            let (decode_ms, text) = {
-                                let rec = rec.lock().unwrap();
-                                let t = Instant::now();
-                                let (el, text) = crate::stt::decode(&rec, 16000, seg.samples());
-                                (t.elapsed().as_secs_f64() * 1000.0, text)
-                            };
-                            let _ = &decode_ms;
-                            let cap = Caption {
-                                track,
-                                seq,
-                                capture_to_text_ms: capture.elapsed().as_secs_f64() * 1000.0,
-                                decode_ms,
-                                segment_s: seg.n() as f64 / 16000.0,
-                                chars: text.chars().count(),
-                            };
-                            serde_json::to_writer(&mut log, &cap)?;
-                            writeln!(log)?;
+                            // hard force-split: pieces of <=10s regardless of VAD silence
+                            let max_samp = 160_000usize; // 10s @ 16k
+                            let total = seg.samples().len();
+                            let mut off = 0usize;
+                            let base_s = seg.start() as f64 / 16000.0;
+                            while off < total {
+                                let end = (off + max_samp).min(total);
+                                let piece = &seg.samples()[off..end];
+                                let seg_s = (end - off) as f64 / 16000.0;
+                                let (decode_ms, text) = {
+                                    let rec = rec.lock().unwrap();
+                                    let t = Instant::now();
+                                    let (el, text) = crate::stt::decode(&rec, 16000, piece);
+                                    (t.elapsed().as_secs_f64() * 1000.0, text)
+                                };
+                                let cap = Caption {
+                                    track,
+                                    seq,
+                                    capture_to_text_ms: capture.elapsed().as_secs_f64() * 1000.0,
+                                    decode_ms,
+                                    segment_s: seg_s,
+                                    chars: text.chars().count(),
+                                };
+                                serde_json::to_writer(&mut log, &cap)?;
+                                writeln!(log)?;
+                                off = end;
+                                let _ = base_s;
+                            }
                             vad.pop();
                         } else {
                             break;
