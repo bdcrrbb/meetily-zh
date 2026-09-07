@@ -118,6 +118,7 @@ pub fn start_transcription_task<R: Runtime>(
             let engine_clone = match &transcription_engine {
                 TranscriptionEngine::Whisper(e) => TranscriptionEngine::Whisper(e.clone()),
                 TranscriptionEngine::Parakeet(e) => TranscriptionEngine::Parakeet(e.clone()),
+                TranscriptionEngine::Qwen3(p) => TranscriptionEngine::Qwen3(p.clone()),
                 TranscriptionEngine::Provider(p) => TranscriptionEngine::Provider(p.clone()),
             };
             let app_clone = app.clone();
@@ -586,6 +587,37 @@ async fn transcribe_chunk_with_provider<R: Runtime>(
                         }),
                     );
 
+                    Err(transcription_error)
+                }
+            }
+        }
+        TranscriptionEngine::Qwen3(qwen) => {
+            // Qwen3-ASR: language auto-detected; initial_prompt maps to hotwords
+            match qwen.transcribe(speech_samples, None).await {
+                Ok(result) => {
+                    let cleaned_text = result.text.trim().to_string();
+                    if cleaned_text.is_empty() {
+                        return Ok((String::new(), None, false));
+                    }
+                    info!(
+                        "Qwen3 transcription complete for chunk {}: '{}' ({} chars)",
+                        chunk.chunk_id,
+                        cleaned_text,
+                        cleaned_text.chars().count()
+                    );
+                    Ok((cleaned_text, None, false))
+                }
+                Err(e) => {
+                    error!("Qwen3 transcription failed for chunk {}: {}", chunk.chunk_id, e);
+                    let transcription_error = TranscriptionError::EngineFailed(e.to_string());
+                    let _ = app.emit(
+                        "transcription-error",
+                        &serde_json::json!({
+                            "error": transcription_error.to_string(),
+                            "userMessage": format!("Transcription failed: {}", transcription_error),
+                            "actionable": false
+                        }),
+                    );
                     Err(transcription_error)
                 }
             }

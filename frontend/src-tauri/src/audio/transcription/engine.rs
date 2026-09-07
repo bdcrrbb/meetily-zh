@@ -15,6 +15,7 @@ use tauri::{AppHandle, Manager, Runtime};
 pub enum TranscriptionEngine {
     Whisper(Arc<crate::whisper_engine::WhisperEngine>),  // Direct access (backward compat)
     Parakeet(Arc<crate::parakeet_engine::ParakeetEngine>), // Direct access (backward compat)
+    Qwen3(Arc<super::qwen_provider::Qwen3Provider>), // Qwen3-ASR int8 via sherpa-onnx
     Provider(Arc<dyn TranscriptionProvider>),  // Trait-based (preferred for new code)
 }
 
@@ -24,6 +25,7 @@ impl TranscriptionEngine {
         match self {
             Self::Whisper(engine) => engine.is_model_loaded().await,
             Self::Parakeet(engine) => engine.is_model_loaded().await,
+            Self::Qwen3(p) => p.is_model_loaded().await,
             Self::Provider(provider) => provider.is_model_loaded().await,
         }
     }
@@ -33,6 +35,7 @@ impl TranscriptionEngine {
         match self {
             Self::Whisper(engine) => engine.get_current_model().await,
             Self::Parakeet(engine) => engine.get_current_model().await,
+            Self::Qwen3(p) => p.get_current_model().await,
             Self::Provider(provider) => provider.get_current_model().await,
         }
     }
@@ -42,6 +45,7 @@ impl TranscriptionEngine {
         match self {
             Self::Whisper(_) => "Whisper (direct)",
             Self::Parakeet(_) => "Parakeet (direct)",
+            Self::Qwen3(_) => "Qwen3 (direct)",
             Self::Provider(provider) => provider.provider_name(),
         }
     }
@@ -135,10 +139,25 @@ pub async fn validate_transcription_model_ready<R: Runtime>(app: &AppHandle<R>) 
                 }
             }
         }
+        "qwen3" => {
+            info!("🔍 Validating Qwen3-ASR model artifacts...");
+            let models_dir = crate::paths::models_dir();
+            if super::qwen_provider::artifacts_present(&models_dir) {
+                info!("✅ Qwen3-ASR model artifacts present: {}", models_dir.display());
+                Ok(())
+            } else {
+                let msg = format!(
+                    "Qwen3-ASR model artifacts missing under {}. Download them via model settings.",
+                    models_dir.display()
+                );
+                warn!("❌ {}", msg);
+                Err(msg)
+            }
+        }
         other => {
             warn!("❌ Unsupported transcription provider for local recording: {}", other);
             Err(format!(
-                "Provider '{}' is not supported for local transcription. Please select 'localWhisper' or 'parakeet'.",
+                "Provider '{}' is not supported for local transcription. Please select 'localWhisper', 'parakeet' or 'qwen3'.",
                 other
             ))
         }
@@ -211,6 +230,12 @@ pub async fn get_or_init_transcription_engine<R: Runtime>(
                     Err("Parakeet engine not initialized. This should not happen after validation.".to_string())
                 }
             }
+        }
+        "qwen3" => {
+            info!("🇨🇳 Initializing Qwen3-ASR transcription engine");
+            let provider = super::qwen_provider::get_or_init_qwen3_provider(None, 3)
+                .map_err(|e| format!("Failed to initialize Qwen3-ASR: {e}"))?;
+            Ok(TranscriptionEngine::Qwen3(provider))
         }
         "localWhisper" | _ => {
             info!("🎤 Initializing Whisper transcription engine");
