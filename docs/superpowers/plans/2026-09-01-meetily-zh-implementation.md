@@ -1,7 +1,7 @@
 # Meetily-ZH Implementation Plan v2
 
 **Date:** 2026-09-01 (v2; after Codex review round 3 — 21 findings folded)
-**Source spec:** `docs/superpowers/specs/2026-09-01-meetily-zh-design.md` — canonical version: **v3.2 @ git commit** (record commit hash here when spec is committed; every benchmark result + gate decision must cite it)
+**Source spec:** `docs/superpowers/specs/2026-09-01-meetily-zh-design.md` — canonical version: **v3.2 @ git commit** (spec commit: 4e1527dca64339f9bb21acbc191ebc21db99af2d; every benchmark result + gate decision must cite it)
 **Executor:** DSH agent sessions + user (Mac-side executions)
 **Convention:** every task ends with a falsifiable verification step (exact command, fixture, threshold, expected artifact). "Done" on evidence only. Automated invariants are separated from owner-acceptance items; acceptance items use a dated signed scorecard.
 

@@ -27,10 +27,15 @@ unaffected (spool + full re-decode).
   live captions lag in long meetings; finalize unaffected.
 - Pathological 2×100% continuous duty: NOT sustainable — does not occur in
   practice; documented, not engineered around.
-- STT quality gate: pending user corpus (CER vs whisper baseline).
-- Diarization quality gate: pending annotated clips.
-- License manifest: artifacts hashed (m0/models/sha256.txt); formal manifest
-  doc pending.
+- STT quality gate: **PASS** (2026-09-07, human refs, pooled CER 0.2497 on
+  deliberately hard far-field/compressed corpus; 9/10 clips 0.11-0.29; see
+  docs/m0-spike-report.md).
+- Diarization quality gate: **FAIL on long audio** (64min -> 76-104 spk;
+  greedy merge error accumulation on far-field embeddings; fixed-k path
+  degenerate). Short-audio (10min, th=0.6) healthy. Consequence per decision
+  matrix: M2 diarization tasks deferred until two-pass windowed clustering is
+  implemented; STT path and M1 unaffected. See docs/m0-spike-report.md §5.
+- License manifest: done (docs/model-manifest.md).
 
 ## Capacity numbers to carry into design
 - Long-clip RTF (cold, M2 Air): 0.33 (stable across 3 runs)
