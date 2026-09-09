@@ -6,7 +6,8 @@ on:
   pull_request:
 
 permissions:
-  contents: write
+  contents: read
+  issues: write
 
 jobs:
   check:
@@ -41,13 +42,13 @@ jobs:
 
       # publish full compiler output into the repo so the server-side agent
       # can read it via git pull (no Actions-log API credentials needed)
-      - name: Publish check log on failure
+      - name: Publish check log as issue on failure
         if: failure() && steps.check.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          git config user.name "ci-bot"
-          git config user.email "ci-bot@users.noreply.github.com"
-          mkdir -p ci
-          cp ci-cargo-check.log ci/cargo-check.log
-          git add ci/cargo-check.log
-          git commit -m "ci: publish cargo check log (run ${GITHUB_RUN_ID})"
-          git push origin HEAD:${GITHUB_REF_NAME}
+          tail -100 ci-cargo-check.log > ci-tail.txt || true
+          gh issue create \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "ci log: ${GITHUB_SHA::7}" \
+            --body-file ci-tail.txt || true
