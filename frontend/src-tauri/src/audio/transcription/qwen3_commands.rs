@@ -5,7 +5,7 @@
 // to the models dir with progress events, then bzip2/tar extraction + sha256
 // verification (M0 sha256.txt values).
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::path::Path;
@@ -122,6 +122,8 @@ async fn download_file(
 }
 
 async fn try_download_once(app: &AppHandle, url: &str, part: &Path, stage: &str) -> Result<()> {
+    use futures_util::StreamExt;
+    use std::io::Write;
     let resp = reqwest::get(url).await?.error_for_status()?;
     let total = resp.content_length().unwrap_or(0);
     let mut file = std::fs::File::create(part)?;
