@@ -83,9 +83,14 @@ export function TranscriptButtonGroup({
       description: 'Analyzing the recording on-device. This can take a minute.',
     });
     try {
+      const engine =
+        typeof window !== 'undefined' && window.localStorage.getItem('meetily-diarization-engine') === 'legacy'
+          ? 'legacy'
+          : 'hierarchical';
       const res = await invoke<{ num_speakers: number; labeled: number }>('diarize_meeting', {
         meetingId,
         numSpeakers: expected ?? null,
+        engine,
       });
       toast.success(
         res.num_speakers > 0

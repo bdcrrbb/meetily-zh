@@ -35,9 +35,21 @@ export function DiarizationSettings() {
   const [progress, setProgress] = useState<DownloadProgress | null>(null);
   const unlistenRef = useRef<UnlistenFn | null>(null);
 
+  const [engine, setEngine] = useState<'hierarchical' | 'legacy'>('hierarchical');
+
   const refresh = useCallback(() => {
     invoke<boolean>('diarization_models_available').then(setAvailable).catch(() => setAvailable(false));
   }, []);
+
+  useEffect(() => {
+    const saved = window.localStorage.getItem('meetily-diarization-engine');
+    if (saved === 'legacy' || saved === 'hierarchical') setEngine(saved);
+  }, []);
+
+  const changeEngine = (next: 'hierarchical' | 'legacy') => {
+    setEngine(next);
+    window.localStorage.setItem('meetily-diarization-engine', next);
+  };
 
   useEffect(() => {
     refresh();
@@ -83,6 +95,21 @@ export function DiarizationSettings() {
 
   return (
     <div className="bg-white rounded-lg border border-gray-200 p-6 shadow-sm">
+      <div className="mb-4 flex items-center gap-4">
+        <span className="text-sm font-medium text-gray-700">Engine:</span>
+        <button
+          className={`rounded-md px-3 py-1.5 text-sm ${engine === 'hierarchical' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+          onClick={() => changeEngine('hierarchical')}
+        >
+          Hierarchical (recommended, long meetings)
+        </button>
+        <button
+          className={`rounded-md px-3 py-1.5 text-sm ${engine === 'legacy' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+          onClick={() => changeEngine('legacy')}
+        >
+          Legacy
+        </button>
+      </div>
       <div className="flex items-start justify-between gap-4">
         <div>
           <h3 className="text-lg font-semibold text-gray-900 mb-2 flex items-center gap-2">

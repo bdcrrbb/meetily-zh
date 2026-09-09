@@ -725,7 +725,11 @@ pub async fn diarize_meeting(
     audio_path: Option<String>,
     num_speakers: Option<usize>,
     threshold: Option<f32>,
+    engine: Option<String>,
 ) -> Result<MeetingDiarizationResult, String> {
+    // "hierarchical" = two-pass windowed sherpa pipeline (long-audio safe);
+    // anything else (default) = legacy bundled diarizer.
+    let use_hierarchical = engine.as_deref() == Some("hierarchical");
     let _operation_guard = operation_guard().await;
     let pool = state.db_manager.pool();
 
@@ -760,6 +764,47 @@ pub async fn diarize_meeting(
     // fall back to the mixed recording + enrolled voiceprint.
     let voiceprint_source = meeting_id.clone();
     let (result, used_source_tracks) = tokio::task::spawn_blocking(move || -> Result<(DiarizationResult, bool)> {
+        if use_hierarchical {
+            // Two-pass windowed pipeline on the (mixed) recording. Import
+            // recordings have no separate tracks; windowing keeps greedy
+            // clustering errors local instead of accumulating over an hour.
+            let (wav, is_temp) = ensure_wav(&source)?;
+            let out = (|| -> Result<DiarizationResult> {
+                let (samples, sr) = dsp::read_wav(&wav)?;
+                if sr != 16000 {
+                    return Err(anyhow!("expected 16 kHz wav, got {}", sr));
+                }
+                let cfg = hierarchical::HierarchicalDiarizationConfig {
+                    window_threshold: threshold.unwrap_or(0.6),
+                    ..Default::default()
+                };
+                let hd = hierarchical::HierarchicalDiarization::new(
+                    &crate::paths::models_dir(),
+                    cfg,
+                )?;
+                let segs = hd.process(&samples)?;
+                let num = segs.iter().map(|s| s.speaker).max().map(|m| m + 1).unwrap_or(0);
+                Ok(DiarizationResult {
+                    segments: segs
+                        .into_iter()
+                        .map(|s| DiarizationSegment {
+                            start: s.start as f32,
+                            end: s.end as f32,
+                            speaker: s.speaker,
+                            overlapped: false,
+                        })
+                        .collect(),
+                    num_speakers: num,
+                    duration: samples.len() as f32 / 16000.0,
+                    user_speaker: None, // attribution infers "You" from live labels
+                })
+            })();
+            if is_temp {
+                let _ = std::fs::remove_file(&wav);
+            }
+            return out.map(|result| (result, false));
+        }
+
         let parent = source.parent().map(Path::to_path_buf);
         let mic_source = parent.as_ref().map(|p| p.join("mic.mp4"));
         let system_source = parent.as_ref().map(|p| p.join("system.mp4"));

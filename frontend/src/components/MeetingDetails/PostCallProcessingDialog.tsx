@@ -247,7 +247,11 @@ export function PostCallProcessingDialog({
     setMessage(count === null
       ? 'Auto-detecting speakers...'
       : `Identifying ${count} speaker${count === 1 ? '' : 's'}...`);
-    await invoke('diarize_meeting', { meetingId, numSpeakers: count });
+    const engine =
+      typeof window !== 'undefined' && window.localStorage.getItem('meetily-diarization-engine') === 'legacy'
+        ? 'legacy'
+        : 'hierarchical';
+    await invoke('diarize_meeting', { meetingId, numSpeakers: count, engine });
     await refreshTranscript('post-diarization-refresh');
     completeWorkflow();
   };
