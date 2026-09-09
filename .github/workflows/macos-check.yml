@@ -18,7 +18,10 @@ jobs:
         with:
           targets: aarch64-apple-darwin
 
-      - uses: Swatinem/rust-cache@v2
+      # NOTE: rust-cache intentionally omitted - Swatinem's partial target/
+      # OUT_DIR restore breaks sherpa-onnx-sys native lib downloads between
+      # the check and test steps (missing -L flag errors). Full builds are
+      # slower but deterministic.
 
       # build.rs/tauri resource check requires the sidecar file to EXIST;
       # cargo check does not link it, so a placeholder suffices here
