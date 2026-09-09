@@ -6,8 +6,7 @@ on:
   pull_request:
 
 permissions:
-  contents: read
-  issues: write
+  contents: write
 
 jobs:
   check:
@@ -42,13 +41,15 @@ jobs:
 
       # publish full compiler output into the repo so the server-side agent
       # can read it via git pull (no Actions-log API credentials needed)
-      - name: Publish check log as issue on failure
+      - name: Publish check log as release asset on failure
         if: failure() && steps.check.outcome == 'failure'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          tail -100 ci-cargo-check.log > ci-tail.txt || true
-          gh issue create \
+          tail -200 ci-cargo-check.log > ci-tail.txt || true
+          TAG="ci-log-${GITHUB_RUN_ID}"
+          gh release create "$TAG" ci-tail.txt \
             --repo "$GITHUB_REPOSITORY" \
-            --title "ci log: ${GITHUB_SHA::7}" \
-            --body-file ci-tail.txt || true
+            --title "ci log ${GITHUB_SHA::7}" \
+            --notes "cargo check failure log" || \
+          gh release upload "$TAG" ci-tail.txt --repo "$GITHUB_REPOSITORY" --clobber || true
