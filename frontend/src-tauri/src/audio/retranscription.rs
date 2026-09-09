@@ -7,6 +7,7 @@ use super::constants::AUDIO_EXTENSIONS;
 use crate::config::{DEFAULT_WHISPER_MODEL, DEFAULT_PARAKEET_MODEL};
 use crate::database::models::DateTimeUtc;
 use crate::database::repositories::vocabulary::VocabularyRepository;
+use crate::audio::transcription::TranscriptionProvider;
 use crate::parakeet_engine::ParakeetEngine;
 use crate::state::AppState;
 use crate::whisper_engine::WhisperEngine;
@@ -100,7 +101,8 @@ async fn start_retranscription<R: Runtime>(
     provider: Option<String>,
     initial_prompt: Option<String>,
 ) -> Result<RetranscriptionResult> {
-    let use_parakeet = provider.as_deref() == Some("parakeet");
+    let use_qwen3 = provider.as_deref() == Some("qwen3");
+    let parakeet_flag = provider.as_deref() == Some("parakeet");
     let batch_lease = super::common::acquire_stt_batch_lease().await;
     let result = run_retranscription(
         app.clone(),
@@ -114,8 +116,11 @@ async fn start_retranscription<R: Runtime>(
     .await;
     drop(batch_lease);
 
-    // Unload the engine after the batch job (success, failure, or cancellation)
-    super::common::unload_engine_after_batch(use_parakeet).await;
+    // Unload the engine after the batch job (success, failure, or cancellation).
+    // Qwen3 keeps its shared recognizer resident by design (eager, ~2s reload).
+    if !use_qwen3 {
+        super::common::unload_engine_after_batch(parakeet_flag).await;
+    }
 
     // Guard will automatically clear flag on drop
     // No need for manual: RETRANSCRIPTION_IN_PROGRESS.store(false, Ordering::SeqCst);
@@ -248,7 +253,8 @@ async fn run_retranscription<R: Runtime>(
     let sources = find_retranscription_sources(&folder_path, &audio_path);
 
     // Determine which provider to use (default to whisper)
-    let use_parakeet = provider.as_deref() == Some("parakeet");
+    let use_qwen3 = provider.as_deref() == Some("qwen3");
+    let use_parakeet = !use_qwen3 && provider.as_deref() == Some("parakeet");
 
     info!(
         "Starting retranscription for meeting {} with language {:?}, model {:?}, provider {:?}",
@@ -377,13 +383,18 @@ async fn run_retranscription<R: Runtime>(
     emit_progress(&app, &meeting_id, "transcribing", 25, "Loading transcription engine...");
 
     // Initialize the appropriate engine once (not per-segment)
-    let whisper_engine = if !use_parakeet {
+    let whisper_engine = if !use_parakeet && !use_qwen3 {
         Some(get_or_init_whisper(&app, model.as_deref()).await?)
     } else {
         None
     };
     let parakeet_engine = if use_parakeet {
         Some(get_or_init_parakeet(&app, model.as_deref()).await?)
+    } else {
+        None
+    };
+    let qwen3_engine = if use_qwen3 {
+        Some(crate::audio::transcription::qwen_provider::get_or_init_qwen3_provider(None, 3)?)
     } else {
         None
     };
@@ -451,7 +462,13 @@ async fn run_retranscription<R: Runtime>(
         }
 
         // Transcribe this segment
-        let (text, conf) = if use_parakeet {
+        let (text, conf) = if let Some(qwen) = qwen3_engine.as_ref() {
+            let result = qwen
+                .transcribe(segment.samples.clone(), None)
+                .await
+                .map_err(|e| anyhow!("Qwen3 transcription failed on segment {}: {}", i, e))?;
+            (result.text, result.confidence.unwrap_or(0.9f32))
+        } else if use_parakeet {
             let engine = parakeet_engine.as_ref().unwrap();
             let text = engine
                 .transcribe_audio(segment.samples.clone())
