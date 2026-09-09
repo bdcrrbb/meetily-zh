@@ -1,0 +1,9 @@
+{
+  "minutes": 30,
+  "captions": 598,
+  "lat_p50_ms": 9702.5705,
+  "lat_p95_ms": 15787.498125,
+  "lat_p99_ms": 20154.547125,
+  "peak_rss_kb": 0,
+  "dropped": 0
+}

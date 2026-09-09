@@ -1,0 +1,68 @@
+{
+  "normalization": "lowercase; whitespace removed; ascii+zh punctuation removed; fullwidth->halfwidth",
+  "clips": [
+    {
+      "clip": "evalset/clip05.wav",
+      "distance": 15,
+      "ref_chars": 54,
+      "cer": 0.2777777777777778
+    },
+    {
+      "clip": "evalset/clip06.wav",
+      "distance": 22,
+      "ref_chars": 90,
+      "cer": 0.24444444444444444
+    },
+    {
+      "clip": "evalset/clip04.wav",
+      "distance": 12,
+      "ref_chars": 112,
+      "cer": 0.10714285714285714
+    },
+    {
+      "clip": "evalset/clip02.wav",
+      "distance": 28,
+      "ref_chars": 108,
+      "cer": 0.25925925925925924
+    },
+    {
+      "clip": "evalset/clip10.wav",
+      "distance": 22,
+      "ref_chars": 95,
+      "cer": 0.23157894736842105
+    },
+    {
+      "clip": "evalset/clip07.wav",
+      "distance": 28,
+      "ref_chars": 96,
+      "cer": 0.2916666666666667
+    },
+    {
+      "clip": "evalset/clip08.wav",
+      "distance": 40,
+      "ref_chars": 59,
+      "cer": 0.6779661016949152
+    },
+    {
+      "clip": "evalset/clip03.wav",
+      "distance": 21,
+      "ref_chars": 88,
+      "cer": 0.23863636363636365
+    },
+    {
+      "clip": "evalset/clip01.wav",
+      "distance": 16,
+      "ref_chars": 61,
+      "cer": 0.26229508196721313
+    },
+    {
+      "clip": "evalset/clip09.wav",
+      "distance": 18,
+      "ref_chars": 126,
+      "cer": 0.14285714285714285
+    }
+  ],
+  "pooled_distance": 222,
+  "pooled_ref_chars": 889,
+  "pooled_cer": 0.24971878515185603
+}
