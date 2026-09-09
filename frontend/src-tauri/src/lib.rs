@@ -606,6 +606,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             start_recording,
             stop_recording,
+            audio::transcription::qwen3_commands::qwen3_status,
+            audio::transcription::qwen3_commands::qwen3_download,
             is_recording,
             get_transcription_status,
             read_audio_file,

@@ -7,11 +7,12 @@ import { Button } from './ui/button';
 import { Label } from './ui/label';
 import { ModelManager } from './WhisperModelManager';
 import { ParakeetModelManager } from './ParakeetModelManager';
+import { Qwen3ModelManager, Qwen3Select } from './Qwen3ModelManager';
 import type { RawModelInfo } from '@/hooks/useTranscriptionModels';
 import { isVisibleParakeetModel } from '@/lib/parakeet';
 
 export interface TranscriptModelProps {
-    provider: 'localWhisper' | 'parakeet' | 'deepgram' | 'elevenLabs' | 'groq' | 'openai';
+    provider: 'localWhisper' | 'parakeet' | 'qwen3' | 'deepgram' | 'elevenLabs' | 'groq' | 'openai';
     model: string;
     apiKey?: string | null;
 }
@@ -116,7 +117,7 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
             });
     }, []);
 
-    const saveLiveConfig = async (provider: 'localWhisper' | 'parakeet', model: string): Promise<boolean> => {
+    const saveLiveConfig = async (provider: 'localWhisper' | 'parakeet' | 'qwen3', model: string): Promise<boolean> => {
         if (liveSaveInFlightRef.current) return false;
         liveSaveInFlightRef.current = true;
         setIsSavingLive(true);
@@ -259,6 +260,9 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
                         </p>
                     </div>
                 </div>
+
+                <Qwen3ModelManager />
+                <Qwen3Select onSave={saveLiveConfig} disabled={isSavingLive} />
 
                 <div
                     className={`space-y-4 rounded-xl border p-4 transition-colors ${installedParakeetModel && !isSavingLive ? 'cursor-pointer hover:border-[var(--af-accent)]' : ''} ${uiProvider === 'parakeet'

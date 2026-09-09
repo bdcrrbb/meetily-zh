@@ -6,6 +6,7 @@ pub mod provider;
 pub mod whisper_provider;
 pub mod parakeet_provider;
 pub mod qwen_provider;
+pub mod qwen3_commands;
 pub mod engine;
 pub mod worker;
 
