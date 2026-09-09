@@ -17,14 +17,13 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      # build.rs resource check requires the llama-helper sidecar binary
-      - name: Build llama-helper sidecar
+      # build.rs/tauri resource check requires the sidecar file to EXIST;
+      # cargo check does not link it, so a placeholder suffices here
+      # (real sidecar builds happen in release builds / on dev machines)
+      - name: Placeholder llama-helper sidecar
         run: |
-          cargo build --release --package llama-helper \
-            --target aarch64-apple-darwin --features metal
           mkdir -p frontend/src-tauri/binaries
-          cp target/aarch64-apple-darwin/release/llama-helper \
-            frontend/src-tauri/binaries/llama-helper-aarch64-apple-darwin
+          printf '#!/bin/sh\n' > frontend/src-tauri/binaries/llama-helper-aarch64-apple-darwin
           chmod +x frontend/src-tauri/binaries/llama-helper-aarch64-apple-darwin
 
       - name: cargo check
