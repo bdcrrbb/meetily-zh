@@ -22,7 +22,7 @@
 //! overwrites these live labels with more accurate ones.
 
 use super::engine::TranscriptionEngine;
-use super::provider::TranscriptionError;
+use super::provider::{TranscriptionError, TranscriptionProvider};
 use crate::audio::AudioChunk;
 use crate::database::repositories::vocabulary::VocabularyRepository;
 use crate::state::AppState;

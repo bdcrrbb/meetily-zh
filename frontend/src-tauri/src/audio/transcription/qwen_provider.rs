@@ -19,7 +19,7 @@ use async_trait::async_trait;
 use log::{info, warn};
 use sherpa_onnx::{
     OfflineModelConfig, OfflineQwen3ASRModelConfig, OfflineRecognizer,
-    OfflineRecognizerConfig, VoiceActivityDetector, Wave,
+    OfflineRecognizerConfig, VoiceActivityDetector,
 };
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -167,8 +167,10 @@ impl Qwen3Provider {
     }
 }
 
-/// Stitch piece texts: no separator for CJK boundaries, space for latin/alnum
-/// boundaries (Chinese has no inter-word spaces).
+/// Stitch piece texts. No separator when either side is CJK (Chinese
+/// typography: no space between CJK and digits/latin); a single space is
+/// inserted only between two latin/alphanumeric boundaries. Display-layer
+/// spacing (盘古之白) is a rendering concern, handled outside transcription.
 fn stitch(pieces: &[String]) -> String {
     let mut out = String::new();
     for p in pieces {
@@ -270,7 +272,11 @@ mod tests {
 
     #[test]
     fn stitch_mixed_and_empty() {
-        assert_eq!(stitch(&["结果是".into(), "".into(), "150".into()]), "结果是 150");
+        // CJK<->digit boundaries take no separator (Chinese typography;
+        // matches Qwen3 native output style). Display-layer 盘古之白 is
+        // handled by the normalization layer, not transcription.
+        assert_eq!(stitch(&["结果是".into(), "".into(), "150".into()]), "结果是150");
+        assert_eq!(stitch(&["report".into(), "2024".into()]), "report 2024");
         assert_eq!(stitch(&[]), "");
     }
 }
