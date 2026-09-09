@@ -84,6 +84,10 @@ fn vad_config(models_dir: &Path) -> sherpa_onnx::VadModelConfig {
 }
 
 pub struct Qwen3Provider {
+    inner: Arc<Inner>,
+}
+
+struct Inner {
     recognizer: OfflineRecognizer,
     models_dir: PathBuf,
 }
@@ -116,11 +120,16 @@ impl Qwen3Provider {
             .ok_or_else(|| "Failed to create Qwen3-ASR recognizer (model load failed)".to_string())?;
         info!("✅ Qwen3-ASR recognizer created (models dir: {})", models_dir.display());
         Ok(Self {
-            recognizer,
-            models_dir: models_dir.to_path_buf(),
+            inner: Arc::new(Inner {
+                recognizer,
+                models_dir: models_dir.to_path_buf(),
+            }),
         })
     }
 
+}
+
+impl Inner {
     fn decode_samples(&self, sr: i32, samples: &[f32]) -> String {
         let stream = self.recognizer.create_stream();
         stream.accept_waveform(sr, samples);
@@ -139,10 +148,9 @@ impl Qwen3Provider {
             })?;
         const WINDOW: usize = 512;
         let mut pieces: Vec<String> = Vec::new();
-        let mut processed = 0usize;
-        while processed + WINDOW <= samples.len() {
-            vad.accept_waveform(&samples[processed..processed + WINDOW]);
-            processed += WINDOW;
+        // chunks(512) yields the final short window too (no tail loss)
+        for chunk in samples.chunks(WINDOW) {
+            vad.accept_waveform(chunk);
             while !vad.is_empty() {
                 if let Some(seg) = vad.front() {
                     // hard force-split: MAX_PIECE_SECS pieces (VAD does not
@@ -200,14 +208,26 @@ impl TranscriptionProvider for Qwen3Provider {
             warn!("Qwen3-ASR auto-detects language; ignoring hint '{}'", lang);
         }
         let dur = audio.len() as f64 / 16000.0;
+        // decode blocks the calling thread for seconds; keep tokio workers free
         let text = if dur > MAX_SINGLE_SHOT_SECS {
             info!(
                 "Qwen3: input {:.0}s > {:.0}s, using VAD-segmented decode",
                 dur, MAX_SINGLE_SHOT_SECS
             );
-            self.vad_segmented_decode(&audio)?
+            let this = self.inner.clone();
+            tokio::task::spawn_blocking(move || this.vad_segmented_decode(&audio))
+                .await
+                .map_err(|e| {
+                    TranscriptionError::EngineFailed(format!("decode task panicked: {e}"))
+                })??
         } else {
-            self.decode_samples(16000, &audio)
+            let this = self.inner.clone();
+            let audio = audio.clone();
+            tokio::task::spawn_blocking(move || this.decode_samples(16000, &audio))
+                .await
+                .map_err(|e| {
+                    TranscriptionError::EngineFailed(format!("decode task panicked: {e}"))
+                })?
         };
         Ok(TranscriptResult {
             text: text.trim().to_string(),
@@ -241,9 +261,13 @@ pub fn get_or_init_qwen3_provider(
     models_dir: Option<&Path>,
     num_threads: i32,
 ) -> Result<Arc<Qwen3Provider>, String> {
-    let mut guard = QWEN3_ENGINE
-        .lock()
-        .map_err(|_| "Qwen3 provider lock poisoned".to_string())?;
+    let mut guard = match QWEN3_ENGINE.lock() {
+        Ok(g) => g,
+        Err(poisoned) => {
+            warn!("Qwen3 provider lock was poisoned; recovering");
+            poisoned.into_inner()
+        }
+    };
     if let Some(existing) = guard.as_ref() {
         return Ok(existing.clone());
     }

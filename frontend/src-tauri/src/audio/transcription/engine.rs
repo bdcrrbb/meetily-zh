@@ -144,7 +144,10 @@ pub async fn validate_transcription_model_ready<R: Runtime>(app: &AppHandle<R>) 
             let models_dir = crate::paths::models_dir();
             if super::qwen_provider::artifacts_present(&models_dir) {
                 info!("✅ Qwen3-ASR model artifacts present: {}", models_dir.display());
-                Ok(())
+                // warm-start: create the recognizer now, not at recording start
+                super::qwen_provider::get_or_init_qwen3_provider(Some(&models_dir), 3)
+                    .map(|_| ())
+                    .map_err(|e| format!("Qwen3-ASR init failed: {e}"))?;
             } else {
                 let msg = format!(
                     "Qwen3-ASR model artifacts missing under {}. Download them via model settings.",
