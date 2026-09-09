@@ -22,6 +22,7 @@ jobs:
         run: |
           cargo build --release --package llama-helper \
             --target aarch64-apple-darwin --features metal
+          mkdir -p frontend/src-tauri/binaries
           cp target/aarch64-apple-darwin/release/llama-helper \
             frontend/src-tauri/binaries/llama-helper-aarch64-apple-darwin
           chmod +x frontend/src-tauri/binaries/llama-helper-aarch64-apple-darwin
