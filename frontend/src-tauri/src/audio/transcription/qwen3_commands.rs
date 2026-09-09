@@ -8,7 +8,7 @@
 use anyhow::Result;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use log::info;
 use std::time::Instant;
 use tauri::{AppHandle, Emitter};

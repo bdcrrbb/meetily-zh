@@ -394,7 +394,8 @@ async fn run_retranscription<R: Runtime>(
         None
     };
     let qwen3_engine = if use_qwen3 {
-        Some(crate::audio::transcription::qwen_provider::get_or_init_qwen3_provider(None, 3)?)
+        Some(crate::audio::transcription::qwen_provider::get_or_init_qwen3_provider(None, 3)
+            .map_err(anyhow::Error::msg)?)
     } else {
         None
     };
