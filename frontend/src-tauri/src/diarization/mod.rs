@@ -15,6 +15,7 @@
 //! Models live install-locally in `<install>/data/models/diarization`.
 
 pub mod clustering;
+pub mod hierarchical;
 pub mod download;
 pub mod dsp;
 pub mod models;
