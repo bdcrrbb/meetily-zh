@@ -5,6 +5,7 @@ use crate::audio::decoder::{decode_audio_file, decode_audio_file_with_progress};
 use crate::audio::vad::get_speech_chunks_with_progress;
 use crate::config::{DEFAULT_WHISPER_MODEL, DEFAULT_PARAKEET_MODEL};
 use crate::database::repositories::vocabulary::VocabularyRepository;
+use crate::audio::transcription::TranscriptionProvider;
 use crate::parakeet_engine::ParakeetEngine;
 use crate::state::AppState;
 use crate::whisper_engine::WhisperEngine;
@@ -267,7 +268,7 @@ pub async fn start_import<R: Runtime>(
     // Reset cancellation flag
     IMPORT_CANCELLED.store(false, Ordering::SeqCst);
 
-    let use_parakeet = provider.as_deref() == Some("parakeet");
+    let use_qwen3 = provider.as_deref() == Some("qwen3");
     let batch_lease = super::common::acquire_stt_batch_lease().await;
     let result = run_import(
         app.clone(),
@@ -280,8 +281,11 @@ pub async fn start_import<R: Runtime>(
     .await;
     drop(batch_lease);
 
-    // Unload the engine after the batch job (success, failure, or cancellation)
-    super::common::unload_engine_after_batch(use_parakeet).await;
+    // Unload the engine after the batch job. Qwen3 keeps its shared
+    // recognizer resident by design.
+    if !use_qwen3 {
+        super::common::unload_engine_after_batch(use_parakeet).await;
+    }
 
     // Guard will automatically clear flag on drop
     // No need for manual: IMPORT_IN_PROGRESS.store(false, Ordering::SeqCst);
@@ -334,7 +338,8 @@ async fn run_import<R: Runtime>(
     );
 
     // Determine which provider to use (default to whisper)
-    let use_parakeet = provider.as_deref() == Some("parakeet");
+    let use_qwen3 = provider.as_deref() == Some("qwen3");
+    let use_parakeet = !use_qwen3 && provider.as_deref() == Some("parakeet");
     let initial_prompt = if use_parakeet {
         None
     } else {
@@ -521,13 +526,24 @@ async fn run_import<R: Runtime>(
     emit_progress(&app, "transcribing", 30, "Loading transcription engine...");
 
     // Initialize the appropriate engine
-    let whisper_engine = if !use_parakeet && total_segments > 0 {
+    let whisper_engine = if !use_parakeet && !use_qwen3 && total_segments > 0 {
         Some(get_or_init_whisper(&app, model.as_deref()).await?)
     } else {
         None
     };
     let parakeet_engine = if use_parakeet && total_segments > 0 {
         Some(get_or_init_parakeet(&app, model.as_deref()).await?)
+    } else {
+        None
+    };
+    let qwen3_engine = if use_qwen3 && total_segments > 0 {
+        Some(
+            crate::audio::transcription::qwen_provider::get_or_init_qwen3_provider(
+                None,
+                3,
+            )
+            .map_err(anyhow::Error::msg)?,
+        )
     } else {
         None
     };
@@ -592,7 +608,13 @@ async fn run_import<R: Runtime>(
         }
 
         // Transcribe
-        let (text, conf) = if use_parakeet {
+        let (text, conf) = if let Some(qwen) = qwen3_engine.as_ref() {
+            let result = qwen
+                .transcribe(segment.samples.clone(), None)
+                .await
+                .map_err(|e| anyhow!("Qwen3 transcription failed on segment {}: {}", i, e))?;
+            (result.text, result.confidence.unwrap_or(0.9f32))
+        } else if use_parakeet {
             let engine = parakeet_engine.as_ref().unwrap();
             let text = engine
                 .transcribe_audio(segment.samples.clone())

@@ -601,6 +601,17 @@ async fn run_retranscription<R: Runtime>(
     // Write updated transcripts.json and metadata.json to the meeting folder
     emit_progress(&app, &meeting_id, "saving", 90, "Writing transcript files...");
 
+    // Archive the previous transcript per provider before overwriting, so
+    // A/B comparison between engines doesn't require re-running each side.
+    let existing = folder_path.join("transcripts.json");
+    if existing.is_file() {
+        let archive = folder_path.join(format!(
+            "transcripts.{}.json",
+            provider.as_deref().unwrap_or("previous")
+        ));
+        let _ = std::fs::copy(&existing, &archive);
+    }
+
     if let Err(e) = write_transcripts_json(&folder_path, &segments) {
         warn!("Failed to write transcripts.json: {}", e);
     }
