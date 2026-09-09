@@ -128,7 +128,7 @@ impl HierarchicalDiarization {
 
             // local speaker -> global id mapping for this window
             let mut mapping: Vec<Option<usize>> = Vec::new();
-            let local_count = segments.iter().map(|s| s.speaker).max::<i32>().unwrap_or(-1) as usize + 1;
+            let local_count = segments.iter().map(|s| s.speaker).max().unwrap_or(-1) as usize + 1;
             mapping.resize(local_count, None);
 
             // build centroid embeddings (mean over the longest segments per speaker)
