@@ -120,12 +120,15 @@ export function RetranscribeDialog({
     return availableModels.find(m => m.provider === provider && m.name === name);
   }, [selectedModelKey, availableModels]);
   const isParakeetModel = selectedModelDetails?.provider === 'parakeet';
+  // Qwen3 auto-detects language; vocabulary/hotwords not yet wired (M2)
+  const isQwen3Model = selectedModelDetails?.provider === 'qwen3';
+  const isAutoLanguageModel = isParakeetModel || isQwen3Model;
 
   useEffect(() => {
-    if (isParakeetModel && selectedLang !== 'auto') {
+    if (isAutoLanguageModel && selectedLang !== 'auto') {
       setSelectedLang('auto');
     }
-  }, [isParakeetModel, selectedLang]);
+  }, [isAutoLanguageModel, selectedLang]);
 
   // Reset state only when dialog transitions from closed to open
   // This prevents re-initialization when config changes while dialog is already open
@@ -262,9 +265,9 @@ export function RetranscribeDialog({
     setProgress(null);
 
     try {
-      const languageToSend = isParakeetModel ? null : selectedLang === 'auto' ? null : selectedLang;
+      const languageToSend = isAutoLanguageModel ? null : selectedLang === 'auto' ? null : selectedLang;
       await Analytics.track('enhance_transcript_started', {
-        language: isParakeetModel ? 'auto' : (selectedLang === 'auto' ? 'auto' : selectedLang),
+        language: isAutoLanguageModel ? 'auto' : (selectedLang === 'auto' ? 'auto' : selectedLang),
         model_provider: selectedModelDetails?.provider || '',
         model_name: selectedModelDetails?.name || '',
         vocabulary_scope: vocabularyTerms.trim() ? vocabularyScope : 'unchanged'
@@ -276,8 +279,8 @@ export function RetranscribeDialog({
         language: languageToSend,
         model: selectedModelDetails?.name || null,
         provider: selectedModelDetails?.provider || null,
-        vocabularyTerms: isParakeetModel ? null : vocabularyTerms.trim() || null,
-        vocabularyScope: isParakeetModel ? null : vocabularyScope,
+        vocabularyTerms: isAutoLanguageModel ? null : vocabularyTerms.trim() || null,
+        vocabularyScope: isAutoLanguageModel ? null : vocabularyScope,
       });
     } catch (err: any) {
       setIsProcessing(false);
@@ -375,7 +378,7 @@ export function RetranscribeDialog({
 
         <div className="space-y-4 py-4">
           {!isProcessing && !error && (
-            !isParakeetModel ? (
+            !(isParakeetModel || isQwen3Model) ? (
               <div className="space-y-3">
                 <div className="flex items-center gap-2">
                   <Globe className="h-4 w-4 text-muted-foreground" />
@@ -483,7 +486,7 @@ export function RetranscribeDialog({
             </div>
           )}
 
-          {!isProcessing && !error && !isParakeetModel && (
+          {!isProcessing && !error && !isAutoLanguageModel && (
             <div className="space-y-3 rounded-lg border border-border p-3">
               <div className="flex items-center gap-2">
                 <BookOpen className="h-4 w-4 text-muted-foreground" />

@@ -68,20 +68,66 @@ fn emit_progress(app: &AppHandle, stage: &str, received: u64, total: u64) {
     );
 }
 
-async fn download_file(app: &AppHandle, url: &str, dest: &Path, stage: &str) -> Result<()> {
-    if dest.exists() {
-        info!("qwen3 download: {} exists, skipping", dest.display());
-        return Ok(());
+/// Download `url` to `dest` atomically with retries.
+/// - Skip only if `expected_sha` is given AND the existing file matches it
+///   (a truncated/partial file is redownloaded). Files without a known sha
+///   (tarballs) are always fetched fresh - partial leftovers cannot survive.
+/// - Streams to `<dest>.part`, verifies received == Content-Length when known,
+///   then renames. Up to 3 attempts.
+async fn download_file(
+    app: &AppHandle,
+    url: &str,
+    dest: &Path,
+    stage: &str,
+    expected_sha: Option<&str>,
+) -> Result<()> {
+    if let Some(sha) = expected_sha {
+        if dest.is_file() && sha256_file(dest).map(|h| h == sha).unwrap_or(false) {
+            info!("qwen3 download: {} verified on disk, skipping", dest.display());
+            return Ok(());
+        }
     }
-    emit_progress(app, stage, 0, 0);
+    let _ = std::fs::remove_file(dest);
+
+    use futures_util::StreamExt;
+    use std::io::Write;
+    let mut last_err: Option<anyhow::Error> = None;
+    for attempt in 1..=3 {
+        if attempt > 1 {
+            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            info!("qwen3 download: retry {attempt} for {stage}");
+        }
+        emit_progress(app, stage, 0, 0);
+        let part = dest.with_extension("part");
+        let _ = std::fs::remove_file(&part);
+        match try_download_once(app, url, &part, stage).await {
+            Ok(()) => {
+                if let Some(sha) = expected_sha {
+                    let got = sha256_file(&part)?;
+                    if got != sha {
+                        let _ = std::fs::remove_file(&part);
+                        anyhow::bail!("checksum mismatch for {stage}: got {got}");
+                    }
+                }
+                std::fs::rename(&part, dest)?;
+                return Ok(());
+            }
+            Err(e) => {
+                let _ = std::fs::remove_file(dest.with_extension("part"));
+                last_err = Some(e);
+            }
+        }
+    }
+    Err(last_err.unwrap_or_else(|| anyhow!("download failed: {url}")))
+}
+
+async fn try_download_once(app: &AppHandle, url: &str, part: &Path, stage: &str) -> Result<()> {
     let resp = reqwest::get(url).await?.error_for_status()?;
     let total = resp.content_length().unwrap_or(0);
-    let mut file = std::fs::File::create(dest)?;
+    let mut file = std::fs::File::create(part)?;
     let mut stream = resp.bytes_stream();
     let mut received = 0u64;
     let mut last_emit = Instant::now();
-    use futures_util::StreamExt;
-    use std::io::Write;
     while let Some(chunk) = stream.next().await {
         let chunk = chunk?;
         file.write_all(&chunk)?;
@@ -92,6 +138,11 @@ async fn download_file(app: &AppHandle, url: &str, dest: &Path, stage: &str) -> 
         }
     }
     file.flush()?;
+    if total > 0 && received != total {
+        anyhow::bail!(
+            "truncated download for {stage}: got {received} of {total} bytes"
+        );
+    }
     emit_progress(app, stage, received, total);
     Ok(())
 }
@@ -130,14 +181,14 @@ pub async fn qwen3_download(app: AppHandle) -> Result<Qwen3Status, String> {
 
     // 1. silero VAD
     let silero = models_dir.join("silero_vad.onnx");
-    download_file(&app, SILERO_URL, &silero, "silero_vad")
+    download_file(&app, SILERO_URL, &silero, "silero_vad", Some(SILERO_SHA))
         .await
         .map_err(|e| e.to_string())?;
     verify(&silero, SILERO_SHA).map_err(|e| e.to_string())?;
 
     // 2. qwen3 ASR tarball
     let qwen_tar = tmp.join("qwen3.tar.bz2");
-    download_file(&app, QWEN3_URL, &qwen_tar, "qwen3_asr")
+    download_file(&app, QWEN3_URL, &qwen_tar, "qwen3_asr", None)
         .await
         .map_err(|e| e.to_string())?;
     extract_tar_bz2(&qwen_tar, &models_dir).map_err(|e| e.to_string())?;
@@ -150,7 +201,7 @@ pub async fn qwen3_download(app: AppHandle) -> Result<Qwen3Status, String> {
 
     // 3. pyannote segmentation (diarization prerequisite, M2)
     let pyannote_tar = tmp.join("pyannote.tar.bz2");
-    download_file(&app, PYANNOTE_URL, &pyannote_tar, "pyannote")
+    download_file(&app, PYANNOTE_URL, &pyannote_tar, "pyannote", None)
         .await
         .map_err(|e| e.to_string())?;
     extract_tar_bz2(&pyannote_tar, &models_dir).map_err(|e| e.to_string())?;
@@ -163,7 +214,7 @@ pub async fn qwen3_download(app: AppHandle) -> Result<Qwen3Status, String> {
 
     // 4. eres2net zh-cn embedding (diarization prerequisite, M2)
     let emb = models_dir.join("3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx");
-    download_file(&app, ERES2NET_URL, &emb, "eres2net")
+    download_file(&app, ERES2NET_URL, &emb, "eres2net", Some(ERES2NET_SHA))
         .await
         .map_err(|e| e.to_string())?;
     verify(&emb, ERES2NET_SHA).map_err(|e| e.to_string())?;

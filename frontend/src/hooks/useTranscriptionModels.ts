@@ -9,7 +9,7 @@ export interface RawModelInfo {
 }
 
 export interface ModelOption {
-  provider: 'whisper' | 'parakeet';
+  provider: 'whisper' | 'parakeet' | 'qwen3';
   name: string;
   displayName: string;
   size_mb: number;
@@ -84,6 +84,21 @@ export function useTranscriptionModels(transcriptModelConfig: TranscriptModelCon
       setHasParakeetModel(false);
     }
 
+    // Fetch Qwen3 availability (single model entry when artifacts present)
+    try {
+      const st = await invoke<{ artifactsPresent: boolean }>('qwen3_status');
+      if (st.artifactsPresent) {
+        allModels.push({
+          provider: 'qwen3' as const,
+          name: 'qwen3-asr-0.6B-int8',
+          displayName: '🇨🇳 Qwen3-ASR (Chinese)',
+          size_mb: 0,
+        });
+      }
+    } catch (err) {
+      console.error('Failed to fetch Qwen3 status:', err);
+    }
+
     setAvailableModels(allModels);
 
     // Set default model based on user's saved configuration
@@ -96,7 +111,8 @@ export function useTranscriptionModels(transcriptModelConfig: TranscriptModelCon
     const configuredMatch = allModels.find(
       (m) =>
         ((configuredProvider === 'localWhisper' || configuredProvider === 'whisper') && m.provider === 'whisper' && m.name === configuredModel) ||
-        (configuredProvider === 'parakeet' && m.provider === 'parakeet' && m.name === configuredModel)
+        (configuredProvider === 'parakeet' && m.provider === 'parakeet' && m.name === configuredModel) ||
+        (configuredProvider === 'qwen3' && m.provider === 'qwen3' && m.name === configuredModel)
     );
     const normalizedProvider = configuredProvider === 'localWhisper' ? 'whisper' : configuredProvider;
     const configuredProviderMatch = allModels.find((model) => model.provider === normalizedProvider);

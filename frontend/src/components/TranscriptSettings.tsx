@@ -7,7 +7,7 @@ import { Button } from './ui/button';
 import { Label } from './ui/label';
 import { ModelManager } from './WhisperModelManager';
 import { ParakeetModelManager } from './ParakeetModelManager';
-import { Qwen3ModelManager, Qwen3Select } from './Qwen3ModelManager';
+import { Qwen3ModelManager } from './Qwen3ModelManager';
 import type { RawModelInfo } from '@/hooks/useTranscriptionModels';
 import { isVisibleParakeetModel } from '@/lib/parakeet';
 
@@ -261,8 +261,37 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
                     </div>
                 </div>
 
-                <Qwen3ModelManager />
-                <Qwen3Select onSave={saveLiveConfig} disabled={isSavingLive} />
+                <div
+                    className={`space-y-4 rounded-xl border p-4 transition-colors ${!isSavingLive ? 'cursor-pointer hover:border-[var(--af-accent)]' : ''} ${uiProvider === 'qwen3'
+                    ? 'border-[var(--af-accent)] bg-[var(--af-accent-soft)] ring-1 ring-blue-500/20'
+                    : 'border-[var(--af-border-strong)] bg-[var(--af-panel-2)]'}`}
+                    role="button"
+                    tabIndex={0}
+                    aria-pressed={uiProvider === 'qwen3'}
+                    onClick={() => {
+                        void saveLiveConfig('qwen3', 'qwen3-asr-0.6B-int8');
+                    }}
+                    onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            void saveLiveConfig('qwen3', 'qwen3-asr-0.6B-int8');
+                        }
+                    }}
+                >
+                    <div className="flex items-start gap-3">
+                        <Languages className="mt-0.5 h-5 w-5 shrink-0 text-blue-500" />
+                        <div className="min-w-0 flex-1">
+                            <h3 className="font-semibold">Qwen3-ASR <span className="ml-1 rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-medium text-blue-700 dark:bg-blue-900 dark:text-blue-300">推荐 · 中文</span></h3>
+                            <p className="mt-1 text-sm text-muted-foreground">
+                                本地中文转写引擎，中文会议首选；自动检测语言，支持方言。
+                            </p>
+                        </div>
+                    </div>
+                    <Qwen3ModelManager />
+                    {uiProvider === 'qwen3' ? (
+                        <p className="text-xs text-muted-foreground">✓ 当前实时转写引擎</p>
+                    ) : null}
+                </div>
 
                 <div
                     className={`space-y-4 rounded-xl border p-4 transition-colors ${installedParakeetModel && !isSavingLive ? 'cursor-pointer hover:border-[var(--af-accent)]' : ''} ${uiProvider === 'parakeet'

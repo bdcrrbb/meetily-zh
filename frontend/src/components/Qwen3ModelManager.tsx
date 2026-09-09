@@ -47,6 +47,8 @@ export function Qwen3ModelManager() {
             setStatus(await invoke<Qwen3Status>('qwen3_download'));
         } catch (e) {
             setError(String(e));
+            // refresh so the Missing list reflects reality after a failed run
+            await refresh();
         } finally {
             setDownloading(false);
             setProgress(null);
@@ -113,32 +115,3 @@ export function Qwen3ModelManager() {
     );
 }
 
-export function Qwen3Select({
-    onSave,
-    disabled,
-}: {
-    onSave: (provider: 'localWhisper' | 'parakeet' | 'qwen3', model: string) => Promise<boolean>;
-    disabled?: boolean;
-}) {
-    const [present, setPresent] = useState<boolean | null>(null);
-    const [selected, setSelected] = useState(false);
-
-    useEffect(() => {
-        void invoke<Qwen3Status>('qwen3_status').then((s) => setPresent(s.artifactsPresent));
-    }, []);
-
-    if (present === null || !present) return null;
-
-    return (
-        <button
-            className={`w-full rounded-md border px-3 py-2 text-sm ${selected ? 'border-[var(--af-accent)] bg-[var(--af-accent)]/10' : 'hover:bg-gray-50 dark:hover:bg-gray-800'}`}
-            disabled={disabled}
-            onClick={async () => {
-                const ok = await onSave('qwen3', 'qwen3-asr-0.6B-int8');
-                if (ok) setSelected(true);
-            }}
-        >
-            {selected ? '✓ Using Qwen3-ASR (Chinese)' : 'Use Qwen3-ASR for transcription (Chinese)'}
-        </button>
-    );
-}
