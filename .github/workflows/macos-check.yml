@@ -5,6 +5,9 @@ on:
     branches: [main, m0-spike, m1-provider, m2-diarization, m3-live, m4-polish]
   pull_request:
 
+permissions:
+  contents: write
+
 jobs:
   check:
     runs-on: macos-latest
@@ -27,7 +30,24 @@ jobs:
           chmod +x frontend/src-tauri/binaries/llama-helper-aarch64-apple-darwin
 
       - name: cargo check
-        run: cargo check --manifest-path frontend/src-tauri/Cargo.toml
+        id: check
+        run: |
+          set -o pipefail
+          cargo check --manifest-path frontend/src-tauri/Cargo.toml 2>&1 | tee ci-cargo-check.log
 
       - name: cargo test (qwen)
+        if: steps.check.outcome == 'success'
         run: cargo test --manifest-path frontend/src-tauri/Cargo.toml qwen
+
+      # publish full compiler output into the repo so the server-side agent
+      # can read it via git pull (no Actions-log API credentials needed)
+      - name: Publish check log on failure
+        if: failure() && steps.check.outcome == 'failure'
+        run: |
+          git config user.name "ci-bot"
+          git config user.email "ci-bot@users.noreply.github.com"
+          mkdir -p ci
+          cp ci-cargo-check.log ci/cargo-check.log
+          git add ci/cargo-check.log
+          git commit -m "ci: publish cargo check log (run ${GITHUB_RUN_ID})"
+          git push origin HEAD:${GITHUB_REF_NAME}
