@@ -9,6 +9,8 @@ use anyhow::Result;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
+use log::info;
+use std::time::Instant;
 use tauri::{AppHandle, Emitter};
 
 use super::qwen_provider::{artifacts_present, QWEN3_MODEL_DIR_NAME};
