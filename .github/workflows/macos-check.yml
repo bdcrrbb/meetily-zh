@@ -1,0 +1,33 @@
+name: macos-check
+
+on:
+  push:
+    branches: [main, m0-spike, m1-provider, m2-diarization, m3-live, m4-polish]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - uses: Swatinem/rust-cache@v2
+
+      # build.rs resource check requires the llama-helper sidecar binary
+      - name: Build llama-helper sidecar
+        run: |
+          cargo build --release --package llama-helper \
+            --target aarch64-apple-darwin --features metal
+          cp target/aarch64-apple-darwin/release/llama-helper \
+            frontend/src-tauri/binaries/llama-helper-aarch64-apple-darwin
+          chmod +x frontend/src-tauri/binaries/llama-helper-aarch64-apple-darwin
+
+      - name: cargo check
+        run: cargo check --manifest-path frontend/src-tauri/Cargo.toml
+
+      - name: cargo test (qwen)
+        run: cargo test --manifest-path frontend/src-tauri/Cargo.toml qwen
