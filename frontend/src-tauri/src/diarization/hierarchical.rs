@@ -290,8 +290,8 @@ mod tests {
         assert!(super::cosine_distance(&a, &a.clone()).abs() < 1e-6);
         let b = vec![0.0, 1.0, 0.0];
         assert!((super::cosine_distance(&a, &b) - 1.0).abs() < 1e-6);
-        // similarity 0.5 <=> distance 0.5
-        let c = vec![1.0, 1.0, 0.0];
+        // similarity 0.5 <=> distance 0.5 (60-degree angle: c = [1, sqrt(3), 0])
+        let c = vec![1.0, 3.0f32.sqrt(), 0.0];
         assert!((super::cosine_distance(&a, &c) - 0.5).abs() < 1e-6);
     }
 }
