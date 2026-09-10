@@ -20,7 +20,7 @@ use anyhow::{anyhow, Result};
 use sherpa_onnx::{
     FastClusteringConfig, OfflineSpeakerDiarization, OfflineSpeakerDiarizationConfig,
     OfflineSpeakerSegmentationModelConfig, OfflineSpeakerSegmentationPyannoteModelConfig,
-    SpeakerEmbeddingExtractor, SpeakerEmbeddingExtractorConfig, SpeakerEmbeddingManager,
+    SpeakerEmbeddingExtractor, SpeakerEmbeddingExtractorConfig,
 };
 use std::path::Path;
 
@@ -28,9 +28,14 @@ use std::path::Path;
 pub struct HierarchicalDiarizationConfig {
     /// Window length for pass-1 clustering (spike-verified healthy scale).
     pub window_secs: f32,
-    /// Pass-1 threshold (cosine distance; higher = merge more). 0.6 verified.
+    /// Pass-1 threshold. COSINE DISTANCE semantics (higher = merge more).
+    /// 0.6 verified on the M0 spike corpus.
     pub window_threshold: f32,
-    /// Pass-2 centroid match threshold (cosine distance).
+    /// Pass-2 centroid match threshold. COSINE DISTANCE semantics, same as
+    /// window_threshold (higher = merge more). Converted internally to the
+    /// similarity scale where needed (similarity = 1 - distance).
+    /// NOTE: sherpa's SpeakerEmbeddingManager::search uses SIMILARITY
+    /// semantics - do not pass this value to it directly.
     pub merge_threshold: f32,
     /// Max segments per window-speaker used to build its centroid embedding.
     pub centroid_max_segments: usize,
@@ -109,8 +114,10 @@ impl HierarchicalDiarization {
             return Err(anyhow!("expected 16 kHz input, engine sample rate is {sr}"));
         }
         let window_samples = (self.config.window_secs * 16000.0) as usize;
-        let manager = SpeakerEmbeddingManager::create(self.embedder.dim())
-            .ok_or_else(|| anyhow!("failed to init speaker manager"))?;
+        // Own centroid table (not sherpa's SpeakerEmbeddingManager): cosine
+        // distance computed here so both passes share distance semantics and
+        // rejected matches can be logged with their best score.
+        let mut centroids: Vec<(usize, Vec<f32>)> = Vec::new();
 
         let mut out: Vec<DiarSegment> = Vec::new();
         let mut next_global = 0usize;
@@ -143,15 +150,28 @@ impl HierarchicalDiarization {
                 }
                 let centroid = self.speaker_centroid(window, segs)?;
                 let Some(centroid) = centroid else { continue };
-                match manager.search(&centroid, self.config.merge_threshold) {
-                    Some(name) => {
-                        mapping[ls] = name.parse::<usize>().ok();
+                let best = centroids
+                    .iter()
+                    .map(|(id, c)| (*id, cosine_distance(&centroid, c)))
+                    .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+                match best {
+                    Some((id, dist)) if dist <= self.config.merge_threshold => {
+                        log::debug!(
+                            "hier: window {wi} local speaker {ls} -> global {id} (distance {dist:.3})"
+                        );
+                        mapping[ls] = Some(id);
+                    }
+                    Some((_, dist)) => {
+                        log::debug!(
+                            "hier: window {wi} local speaker {ls} rejected best match                              (distance {dist:.3} > {}), new global {next_global}",
+                            self.config.merge_threshold
+                        );
+                        centroids.push((next_global, centroid));
+                        mapping[ls] = Some(next_global);
+                        next_global += 1;
                     }
                     None => {
-                        manager
-                            .add(&next_global.to_string(), &centroid)
-                            .then_some(())
-                            .ok_or_else(|| anyhow!("speaker manager add failed"))?;
+                        centroids.push((next_global, centroid));
                         mapping[ls] = Some(next_global);
                         next_global += 1;
                     }
@@ -170,6 +190,13 @@ impl HierarchicalDiarization {
         }
 
         out.sort_by(|a, b| a.start.partial_cmp(&b.start).unwrap_or(std::cmp::Ordering::Equal));
+        let distinct = out.iter().map(|s| s.speaker).collect::<std::collections::HashSet<_>>().len();
+        log::info!(
+            "hier: {} windows, {} clusters created, {} speakers with segments (final)",
+            samples.len().div_ceil(window_samples),
+            next_global,
+            distinct
+        );
         Ok(out)
     }
 
@@ -228,6 +255,23 @@ impl HierarchicalDiarization {
 
 }
 
+/// Cosine distance (1 - cosine similarity) between two equal-length vectors.
+fn cosine_distance(a: &[f32], b: &[f32]) -> f32 {
+    let mut dot = 0.0f32;
+    let mut na = 0.0f32;
+    let mut nb = 0.0f32;
+    for (x, y) in a.iter().zip(b.iter()) {
+        dot += x * y;
+        na += x * x;
+        nb += y * y;
+    }
+    let denom = na.sqrt() * nb.sqrt();
+    if denom == 0.0 {
+        return 1.0;
+    }
+    1.0 - (dot / denom)
+}
+
 #[cfg(test)]
 mod tests {
     // Unit-testable pieces (window math, mapping) are exercised via process()
@@ -238,5 +282,16 @@ mod tests {
         assert_eq!(c.window_secs, 600.0);
         assert!((c.window_threshold - 0.6).abs() < f32::EPSILON);
         assert!((c.merge_threshold - 0.6).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn cosine_distance_identity_and_opposite() {
+        let a = vec![1.0, 0.0, 0.0];
+        assert!(super::cosine_distance(&a, &a.clone()).abs() < 1e-6);
+        let b = vec![0.0, 1.0, 0.0];
+        assert!((super::cosine_distance(&a, &b) - 1.0).abs() < 1e-6);
+        // similarity 0.5 <=> distance 0.5
+        let c = vec![1.0, 1.0, 0.0];
+        assert!((super::cosine_distance(&a, &c) - 0.5).abs() < 1e-6);
     }
 }
